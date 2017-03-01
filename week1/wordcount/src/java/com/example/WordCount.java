@@ -24,6 +24,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Counters;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hadoop.mapreduce.Reducer;
@@ -32,19 +33,28 @@ import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.GenericOptionsParser;
 
 public class WordCount {
-
+  enum WordRange {A_M, N_Z}
   public static class TokenizerMapper 
        extends Mapper<Object, Text, Text, IntWritable>{
     
     private final static IntWritable one = new IntWritable(1);
     private Text word = new Text();
-      
+    Counters counters = new Counters();
+    int multiplier = -1;
     public void map(Object key, Text value, Context context
                     ) throws IOException, InterruptedException {
+      if (multiplier == -1) {
+    	  multiplier = context.getConfiguration().getInt("multiplier", -1);
+      }
       StringTokenizer itr = new StringTokenizer(value.toString());
       while (itr.hasMoreTokens()) {
         word.set(itr.nextToken());
-        context.write(word, one);
+        context.write(word, new IntWritable(multiplier));
+        if (word.toString().toUpperCase().compareTo("N") < 0) {
+        	context.getCounter(WordRange.A_M).increment(1);
+        } else {
+        	context.getCounter(WordRange.N_Z).increment(1);
+        }
       }
     }
   }
@@ -67,6 +77,7 @@ public class WordCount {
 
   public static void main(String[] args) throws Exception {
     Configuration conf = new Configuration();
+    conf.setInt("multiplier", 2);
     String[] otherArgs = new GenericOptionsParser(conf, args).getRemainingArgs();
     if (otherArgs.length < 2) {
       System.err.println("Usage: wordcount <in> [<in>...] <out>");
@@ -76,6 +87,7 @@ public class WordCount {
     job.setJarByClass(WordCount.class);
     job.setMapperClass(TokenizerMapper.class);
     job.setReducerClass(IntSumReducer.class);
+    job.setCombinerClass(IntSumReducer.class);
     job.setOutputKeyClass(Text.class);
     job.setOutputValueClass(IntWritable.class);
     for (int i = 0; i < otherArgs.length - 1; ++i) {
